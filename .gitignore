@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# weights / checkpoints
+outputs/
+*.safetensors
+*.pt
+*.bin
+*.ckpt
+!data/smplx_adjacency.pt
+
+# datasets (not tracked - see README "Data layout")
+data/bedlam_single/
+data/traj100/
+data/models/
+
+# generated samples
+sample/
+*.jpg
+*.png
+*.gif
+
+# logs
+logs/
+events.out.tfevents.*

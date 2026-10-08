@@ -1,0 +1,12 @@
+# tested combination (CUDA 12.1, RTX 4090)
+torch==2.4.1
+diffusers==0.31.0
+transformers==4.46.3
+accelerate==1.1.1
+peft==0.19.1
+safetensors
+numpy
+opencv-python
+tqdm
+# optional: memory-efficient attention (cfg.enable_xformers)
+xformers
