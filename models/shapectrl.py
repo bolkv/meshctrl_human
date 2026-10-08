@@ -3,23 +3,11 @@ from __future__ import annotations
 import math
 from typing import Optional, Sequence
 
-import numpy as np
 import torch
-import torch.nn.functional as F
 from torch import nn
 
 from models.point_transformer import PointEncoder, load_faces_from_obj  # noqa: F401
 
-
-def vertex_normals(verts: torch.Tensor, faces: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
-    """Per-vertex area-weighted normals. verts (B,N,3), faces (F,3) long (outward winding).
-    Returns unit normals (B,N,3). Canonical-frame: front-surface -> +forward, back -> -forward."""
-    v0 = verts[:, faces[:, 0]]; v1 = verts[:, faces[:, 1]]; v2 = verts[:, faces[:, 2]]  # (B,F,3)
-    fn = torch.cross(v1 - v0, v2 - v0, dim=-1)                      # (B,F,3) area-weighted face normal
-    vn = torch.zeros_like(verts)
-    idx = torch.cat([faces[:, 0], faces[:, 1], faces[:, 2]], dim=0)  # (3F,)
-    vn.index_add_(1, idx, fn.repeat(1, 3, 1))                       # scatter face normal to its 3 verts
-    return F.normalize(vn, dim=-1, eps=eps)
 
 
 class FourierPositionalEncoding(nn.Module):
@@ -150,8 +138,7 @@ def frustum_trilinear_scatter(
                 acc_feat.scatter_add_(1, idx_c, feats * w)
                 acc_w.scatter_add_(1, flat.unsqueeze(-1), w)
 
-    # feat_grid = acc_feat / acc_w.clamp_min(eps)          # (old: weighted average - normalized away density)
-    feat_grid = acc_feat                                   # sum (no /acc_w): keep density/count info
+    feat_grid = acc_feat / acc_w.clamp_min(eps)            # weighted average over contributions
     return feat_grid.view(B, H, W, D, C).permute(0, 4, 1, 2, 3).contiguous()
 
 
@@ -162,38 +149,35 @@ class ShapeCtrl(nn.Module):
         faces: Optional[torch.Tensor] = None,  # (F, 3) long, 0-indexed (fixed topology)
         num_vertices: int = 10475,           # SMPL-X template vertex count
         fourier_num_freqs: int = 4,          # -> 27-D PE
-        pt_dims: Sequence[int] = (54, 48, 48, 48),   # in=54 (canon PE 27 + normal PE 27); 3 PT layers
+        pt_dims: Sequence[int] = (48, 48, 48, 48),   # in=48 (vertex embed 21 + canon PE 27)
         voxel_res: Sequence[int] = (128, 128, 32),   # (H, W, D)
         max_neighbors: Optional[int] = 8,    # cap 1-ring (fan poles only) to save memory
         adjacency_cache: Optional[str] = None,  # build once, reuse for all meshes
         drop_oob: bool = False,              # drop out-of-frame verts in scatter (vs clamp)
-        faces_path: str = "data/smplx_faces.npy",  # for per-vertex normals
     ):
         super().__init__()
         self.num_vertices = num_vertices
         self.H, self.W, self.D = tuple(voxel_res)
         self.drop_oob = drop_oob
 
-        # faces (for canonical-frame vertex normals): encode front/back surface orientation
-        if faces is None:
-            faces = torch.as_tensor(np.load(faces_path), dtype=torch.long)
-        self.register_buffer("faces", faces.long(), persistent=False)
-
-        # Fourier PE of canonical coords AND of canonical vertex normal (facing signal)
+        # Fourier PE; the vertex index embedding fills the rest of pt_dims[0]
         self.pe = FourierPositionalEncoding(num_freqs=fourier_num_freqs, include_input=True)
-        self.pe_n = FourierPositionalEncoding(num_freqs=fourier_num_freqs, include_input=True)
-        in_dim = self.pe.out_dim + self.pe_n.out_dim        # 27 + 27 = 54
-        assert pt_dims[0] == in_dim, (
-            f"pt_dims[0] ({pt_dims[0]}) must equal canon PE + normal PE dim ({in_dim})"
+        pe_dim = self.pe.out_dim                            # 27
+        embed_dim = pt_dims[0] - pe_dim                     # 48 - 27 = 21
+        assert embed_dim > 0, (
+            f"pt_dims[0] ({pt_dims[0]}) must exceed Fourier PE dim ({pe_dim})"
         )
 
-        # 4. point encoder over fixed mesh connectivity: 54 -> 48 -> 48 -> 48
+        # per-vertex index embedding, used directly (no refine MLP)
+        self.vertex_embed = nn.Embedding(num_vertices, embed_dim)   # (N, 21)
+
+        # point encoder over fixed mesh connectivity: 48 -> 48 -> 48 -> 48
         self.point_encoder = PointEncoder(
             faces, num_vertices, dims=tuple(pt_dims),
             max_neighbors=max_neighbors, adjacency_cache=adjacency_cache,
         )
-        self.feat_dim = self.point_encoder.out_dim         # 24
-        self.out_channels = self.feat_dim                  # 24
+        self.feat_dim = self.point_encoder.out_dim
+        self.out_channels = self.feat_dim
 
     def forward(
         self,
@@ -202,24 +186,24 @@ class ShapeCtrl(nn.Module):
         z: torch.Tensor,
     ) -> torch.Tensor:
         """canon_coords: (B,N,3) for encoding; uv: (B,N,2) projected image coords;
-        z: (B,N) camera depth. Returns (B, 24, H, W, D) frustum voxel."""
+        z: (B,N) camera depth. Returns (B, out_channels, H, W, D) frustum voxel."""
         B, N, _ = canon_coords.shape
 
-        # 1. per-vertex canonical normal (facing signal): front-surface vs back-surface
-        normals = vertex_normals(canon_coords, self.faces)  # (B, N, 3) unit
+        # 1. per-vertex index embedding (direct, no refine MLP)
+        vertex_ids = torch.arange(N, device=canon_coords.device)
+        embed = self.vertex_embed(vertex_ids).unsqueeze(0).expand(B, -1, -1)  # (B, N, 21)
 
-        # 2. Fourier PE of canonical coords + Fourier PE of normal
+        # 2. Fourier PE of canonical coords
         pe = self.pe(canon_coords)                          # (B, N, 27)
-        pe_n = self.pe_n(normals)                           # (B, N, 27)
 
-        # 3. concat -> 54-D
-        x = torch.cat([pe, pe_n], dim=-1)                   # (B, N, 54)
+        # 3. concat -> 48-D
+        x = torch.cat([embed, pe], dim=-1)                  # (B, N, 48)
 
-        # 4. point encoder over fixed mesh connectivity (pos = canonical) -> (B, N, 24)
+        # 4. point encoder over fixed mesh connectivity (pos = canonical)
         x = self.point_encoder(x, canon_coords)
 
         # 5. frustum scatter at projected (u,v) + depth -> image-aligned voxel
         voxel = frustum_trilinear_scatter(
             uv, z, x, H=self.H, W=self.W, D=self.D, drop_oob=self.drop_oob,
         )
-        return voxel                                        # (B, 24, H, W, D)
+        return voxel                                        # (B, out_channels, H, W, D)

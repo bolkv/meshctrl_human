@@ -48,11 +48,10 @@ class ModelConfig:
     enable_xformers: bool = True
     allow_tf32: bool = True
 
-    # appearance/shape disentangle experiment
-    control_null_text: bool = True         # feed EMPTY text to ControlNet(ShapeCtrl) branch -> pure geometry
-    use_lora: bool = True                  # train a UNet LoRA to absorb the (BEDLAM) appearance domain
+    control_null_text: bool = True        
+    use_lora: bool = True                
     lora_rank: int = 16
-    lora_lr: float = 1e-4                  # separate LR for the LoRA (usually higher than controlnet lr)
+    lora_lr: float = 1e-4                 
 
     
     logging_dir: str = "logs"
