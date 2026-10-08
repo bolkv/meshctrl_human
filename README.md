@@ -44,6 +44,8 @@ configs/model_config.py    all hyperparameters, overridable from the CLI
 data/
   smplx_adjacency.pt       SMPL-X 1-ring neighbours (required)
   smplx_faces.npy          SMPL-X faces (optional; only to rebuild the adjacency cache)
+  README.md                BEDLAM preprocessing pipeline
+  *.py, *.sh               the preprocessing stages themselves
 ```
 
 Every dataclass field in `ModelConfig` becomes a `--flag`, e.g. `--train_batch_size 2`.
@@ -57,9 +59,13 @@ pip install -r requirements.txt
 Base weights (`SG161222/Realistic_Vision_V5.1_noVAE`, ~470 MB) download from the Hub on first
 run. Offline? copy an existing HF cache and point `HF_HOME` at it.
 
-## Data layout (not shipped)
+## Data
 
-`data/bedlam_single/`:
+The dataset itself is not shipped. `data/` holds the BEDLAM preprocessing pipeline that
+builds it - see **[data/README.md](data/README.md)** for the stage order, the environment
+variables to repoint, and the one hardcoded path that needs editing.
+
+Layout it produces, `data/bedlam_single/`:
 
 ```
 manifest.json                     {"samples": [...], "train_idx": [...], "test_idx": [...]}
