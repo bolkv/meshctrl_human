@@ -1,20 +1,4 @@
 #!/usr/bin/env python3
-"""Build multi-person BEDLAM_multi training set (ragged, per-frame variable #bodies).
-
-For each frame (512 letterbox jpg): every visible body's camera-frame SMPL-X verts, plus
-per-body global_orient (for canonicalisation) and the frame's cam intrinsics. The dataloader
-derives canon/uv/z from these on the fly (cheap). Bodies are depth-sorted -> inst slot.
-
-Outputs data/bedlam_multi_train/:
-  verts.npy       (T,10475,3) fp16   camera-frame vertices, all bodies concatenated
-  body_go.npy     (T,3)       fp32   global_orient per body (canon = verts @ R(go) - mean)
-  body_frame.npy  (T,)        int32  frame index per body
-  body_inst.npy   (T,)        uint8  instance slot (0..K-1, depth order front->back)
-  frame_K.npy     (F,3,3)     fp32   cam intrinsics per frame
-  latent_mean.npy (F,4,64,64) fp16   VAE latent mean of the 512 image
-  latent_std.npy  (F,4,64,64) fp16
-  manifest.json   {images, captions, train_idx, test_idx}   (frame-level; 50K train / rest test)
-"""
 import glob, json, os, sys
 import cv2, numpy as np, torch, smplx
 from PIL import Image

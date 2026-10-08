@@ -1,18 +1,3 @@
-"""Single-person crops from NATIVE BEDLAM mp4 frames (no resize, no quality loss).
-
-Reuses precomputed bedlam_multi_train verts (camera-space, resolution-independent),
-recovers the NATIVE camera K from the stored 512-letterbox K, projects to native
-pixels, then crops a person-centered square straight out of the native mp4 frame
-with black padding and NO resize.
-
-Per body (in a 1~3-person frame): drop if padding >= 20% (native bounds) or too small.
-
-Structured output (OUT):
-  <seq>/<clip>/<frame>_b<inst>/
-      img.jpg      native person crop (square, black-padded, NOT resized)
-      meta.npz     canon(N,3), uv(N,2 native-crop coords), z(N), cam_int(3,3), bbox, inst, caption
-  manifest.json
-"""
 import os, sys, re, json, glob, subprocess, shutil, numpy as np, cv2, torch
 import project_bedlam as pb
 

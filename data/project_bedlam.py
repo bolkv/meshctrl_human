@@ -1,8 +1,3 @@
-"""
-BEDLAM gendered_ground_truth -> image projection (reproduces the official df_full_body.py
-conventions). Combines be_seq.csv (body placement), motion_seq.npz (SMPL-X motion) and the
-camera csv (per-frame camera) to project meshes onto 30fps frames; 6fps = every 5th frame.
-"""
 import os, csv, glob, numpy as np, torch, cv2, smplx
 
 ROOT = os.environ.get("BEDLAM_ROOT", "/workspace/shapectrl/data/BEDLAM")
@@ -12,7 +7,6 @@ SENSOR_W, SENSOR_H = 36.0, 20.25
 IMG_W, IMG_H = 1280, 720
 
 def set_orientation(rotate_flag):
-    """For closeup (portrait) shots, swap sensor and resolution. Updates globals."""
     global SENSOR_W, SENSOR_H, IMG_W, IMG_H
     if rotate_flag:
         SENSOR_W, SENSOR_H, IMG_W, IMG_H = 20.25, 36.0, 720, 1280
@@ -53,7 +47,6 @@ def get_cam_trans(body_trans,cam_t):
     return bt-ct
 
 def get_j0(beta,gender):
-    """Pelvis joint: depends on betas only, independent of pose, so it is cached."""
     _,jl=smplx_verts(np.zeros(165),beta,torch.zeros(3),gender)
     return jl[0].detach().cpu().numpy()
 
@@ -78,7 +71,6 @@ def project(points,cam_trans,K):
     return torch.einsum('ij,kj->ki',K,pp.float()).detach().cpu().numpy()
 
 def parse_seq(be_seq_path, seq_name):
-    """Return the bodies of seq_name as [(subject, motion_id, X, Y, Z, Yaw, start_frame)]."""
     rows=list(csv.reader(open(be_seq_path)))
     bodies=[]; in_seq=False
     for r in rows:
@@ -98,7 +90,6 @@ def load_cam(cam_csv):
     return rows
 
 def project_frame(seq_name, img_ind, bodies, cam_rows, rotate_flag=False, return_cam=False):
-    """Project every body into one frame (img_ind, a 30fps index) -> verts2d_list."""
     c=cam_rows[img_ind]
     cam_t=[float(c['x']),float(c['y']),float(c['z'])]
     cam_pitch=-float(c['pitch']); cam_yaw=-float(c['yaw'])

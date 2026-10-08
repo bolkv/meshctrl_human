@@ -1,12 +1,3 @@
-"""Precompute VAE latent posteriors (mean/std) for bedlam_single -> per-sample latent.npz.
-
-Lets training skip the VAE encode each step: train.py's `latent_mean` branch does
-`latents = mean + std * noise` (scaling_factor applied there). Stored mean/std are the
-RAW VAE posterior (pre-scaling), matching train.py's convention.
-
-Sharded across GPUs (precompute_latents_run.sh). Resume: skip dirs that already have latent.npz.
-Run AFTER captioning (needs GPU). Uses the training env (diffusers), no isolated libs.
-"""
 import os, sys, glob, numpy as np, cv2, torch
 sys.path.insert(0, "/workspace/shapectrl")
 from diffusers import AutoencoderKL
@@ -18,7 +9,6 @@ RES = 512
 
 
 def load_vae(cfg):
-    """Same VAE selection as models.controlnet.load_base_models."""
     if getattr(cfg, "vae_name_or_path", None):
         return AutoencoderKL.from_pretrained(cfg.vae_name_or_path)
     try:

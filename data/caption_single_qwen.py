@@ -1,10 +1,3 @@
-"""Single-person crop captions for bedlam_single (Qwen2.5-VL-7B, multi-GPU sharding).
-
-Structure: bedlam_single/<seq>/<clip>/<frame>_b<inst>/img.jpg  (one person, centered).
-Writes caption.txt next to each img.jpg (resume = skip if caption.txt exists).
-Needs isolated libs: PYTHONPATH=/workspace/shapectrl/data/.qwen_libs (transformers 4.49);
-caption_single_run.sh sets PYTHONPATH/CUDA/sharding.
-"""
 import os, sys, glob, torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
