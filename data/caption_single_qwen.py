@@ -13,14 +13,13 @@ MODEL = os.environ.get("QWEN_MODEL", "/workspace/shapectrl/data/models/Qwen2.5-V
 ROOT  = os.environ.get("SINGLE_ROOT", "/workspace/shapectrl/data/bedlam_single")
 IMG_BATCH = int(os.environ.get("IMG_BATCH", 6))
 
-# single-person crop: focus on the centered person, ignore edge-clipped bystanders
 Q = ("In 3 detailed sentences, describe that "
      "person: their body pose and current action/movement; their gender, body type, "
      "and appearance; and their clothing. Then note the background environment."
     )
 
 
-def main():  
+def main():
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         MODEL, torch_dtype=torch.bfloat16, device_map="cuda").eval()
     proc = AutoProcessor.from_pretrained(MODEL)
@@ -39,7 +38,6 @@ def main():
         return [c.strip() for c in proc.batch_decode(trimmed, skip_special_tokens=True,
                                                      clean_up_tokenization_spaces=False)]
 
-    # every sample dir (one img.jpg) missing caption.txt
     samples = sorted(glob.glob(f"{ROOT}/*/*/*_b*/img.jpg"))
     tasks = [p for p in samples if not os.path.exists(os.path.join(os.path.dirname(p), "caption.txt"))]
     nshard = int(os.environ.get("NSHARD", "1")); shard = int(os.environ.get("SHARD", "0"))

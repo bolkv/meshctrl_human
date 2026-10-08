@@ -51,8 +51,8 @@ def main():
             px = torch.from_numpy(np.stack(imgs)).permute(0, 3, 1, 2).float() / 127.5 - 1.0
             px = px.to("cuda", torch.float16)
             with torch.no_grad():
-                dist = vae.encode(px).latent_dist                      # DiagonalGaussian
-                mean = dist.mean.cpu().numpy().astype(np.float16)      # (B,4,64,64) raw (pre-scaling)
+                dist = vae.encode(px).latent_dist
+                mean = dist.mean.cpu().numpy().astype(np.float16)
                 std = dist.std.cpu().numpy().astype(np.float16)
             for j, d in enumerate(batch):
                 np.savez_compressed(f"{d}/latent.npz", mean=mean[j], std=std[j])

@@ -1,7 +1,7 @@
 """
-BEDLAM gendered_ground_truth -> 이미지 투영 (공식 df_full_body.py 규약 재현).
-be_seq.csv(바디 배치) + motion_seq.npz(SMPL-X 모션) + camera csv(프레임별 카메라)
-를 합성해 30fps 프레임에 메쉬 투영. 6fps는 5프레임마다.
+BEDLAM gendered_ground_truth -> image projection (reproduces the official df_full_body.py
+conventions). Combines be_seq.csv (body placement), motion_seq.npz (SMPL-X motion) and the
+camera csv (per-frame camera) to project meshes onto 30fps frames; 6fps = every 5th frame.
 """
 import os, csv, glob, numpy as np, torch, cv2, smplx
 
@@ -12,7 +12,7 @@ SENSOR_W, SENSOR_H = 36.0, 20.25
 IMG_W, IMG_H = 1280, 720
 
 def set_orientation(rotate_flag):
-    """closeup(portrait)면 센서/해상도 스왑. 전역 갱신."""
+    """For closeup (portrait) shots, swap sensor and resolution. Updates globals."""
     global SENSOR_W, SENSOR_H, IMG_W, IMG_H
     if rotate_flag:
         SENSOR_W, SENSOR_H, IMG_W, IMG_H = 20.25, 36.0, 720, 1280
@@ -53,7 +53,7 @@ def get_cam_trans(body_trans,cam_t):
     return bt-ct
 
 def get_j0(beta,gender):
-    """골반 조인트 (betas에만 의존, pose 무관) — 캐시용."""
+    """Pelvis joint: depends on betas only, independent of pose, so it is cached."""
     _,jl=smplx_verts(np.zeros(165),beta,torch.zeros(3),gender)
     return jl[0].detach().cpu().numpy()
 
@@ -78,7 +78,7 @@ def project(points,cam_trans,K):
     return torch.einsum('ij,kj->ki',K,pp.float()).detach().cpu().numpy()
 
 def parse_seq(be_seq_path, seq_name):
-    """seq_name 의 바디들 [(subject,motion_id,X,Y,Z,Yaw,start_frame)] 반환"""
+    """Return the bodies of seq_name as [(subject, motion_id, X, Y, Z, Yaw, start_frame)]."""
     rows=list(csv.reader(open(be_seq_path)))
     bodies=[]; in_seq=False
     for r in rows:
@@ -95,10 +95,10 @@ def parse_seq(be_seq_path, seq_name):
 
 def load_cam(cam_csv):
     rows=list(csv.DictReader(open(cam_csv)))
-    return rows  # per-frame: x,y,z,yaw,pitch,roll,focal_length...
+    return rows
 
 def project_frame(seq_name, img_ind, bodies, cam_rows, rotate_flag=False, return_cam=False):
-    """한 프레임(img_ind, 30fps 인덱스)에 모든 바디 투영. (verts2d_list)"""
+    """Project every body into one frame (img_ind, a 30fps index) -> verts2d_list."""
     c=cam_rows[img_ind]
     cam_t=[float(c['x']),float(c['y']),float(c['z'])]
     cam_pitch=-float(c['pitch']); cam_yaw=-float(c['yaw'])
@@ -118,7 +118,6 @@ def project_frame(seq_name, img_ind, bodies, cam_rows, rotate_flag=False, return
         ct=np.matmul(crot,ct.T).T
         c_go,c_tr,_=global_orient(pose,beta,transl,gender,yaw,cam_pitch,cam_yaw,cam_roll)
         pose_cam=pose.copy(); pose_cam[:3]=c_go
-        # cam_trans(ct)을 trans_cam에 흡수: project()가 verts+ct 하므로 동일효과로 c_tr+ct 저장
         full_trans=(c_tr+ct).reshape(3)
         if return_cam:
             params.append(dict(body=f"{sub}_{mid}", pose_cam=pose_cam.astype(np.float32),
@@ -141,7 +140,6 @@ if __name__=="__main__":
     bodies=parse_seq(be,seq)
     print("bodies:",[(b[0],b[1],b[6]) for b in bodies])
     cam_rows=load_cam(f"{base}/camera/{seq}_camera.csv")
-    # 프레임 추출
     SP="/tmp/claude-0/-workspace/3fcff7b3-fb83-4fe8-88c1-8ab68224e2f3/scratchpad"
     os.system(f'tar xf {ROOT}/{SEQDIR}/mp4/{SEQDIR}_mp4.tar -C {SP} {SEQDIR}/mp4/{seq}.mp4 2>/dev/null')
     mp4=f"{SP}/{SEQDIR}/mp4/{seq}.mp4"

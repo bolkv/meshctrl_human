@@ -25,7 +25,7 @@ import project_bedlam as pb
 OUT = "bedlam_multi_train"; ROOT = "BEDLAM_multi"
 RES = 512; N_TRAIN = 50000; SMPL_CHUNK = 256; VAE_CHUNK = 32
 DEV = "cuda"
-LIMIT = int(os.environ.get("LIMIT", 0))    # >0: only first N clips (quick test)
+LIMIT = int(os.environ.get("LIMIT", 0))
 os.makedirs(OUT, exist_ok=True)
 
 _gm = {g: smplx.create(pb.MODELS, "smplx", gender=g, ext="npz", num_betas=10,
@@ -40,10 +40,9 @@ def verts_batch(pose, beta, trans, gender):
           expression=torch.zeros(len(pose), 10, device=DEV), transl=t(trans))
     return o.vertices.cpu().numpy()
 
-# ---- pass 1: enumerate frames & bodies ----
 clips = sorted(glob.glob(f"{ROOT}/*/seq_*"))
 if LIMIT: clips = clips[:LIMIT]
-frames, bodies = [], []   # frames: dict per frame; bodies: dict per visible body
+frames, bodies = [], []
 clip_of_frame = []
 for cdir in clips:
     try:
@@ -67,7 +66,6 @@ for cdir in clips:
 F, T = len(frames), len(bodies)
 print(f"pass1: {len(clips)} clips -> {F} frames, {T} bodies", flush=True)
 
-# ---- pass 2a: SMPL-X forward (chunked by gender) -> verts + depth ----
 verts = np.empty((T, 10475, 3), np.float16)
 body_go = np.stack([b["pose"][:3] for b in bodies]).astype(np.float32)
 body_frame = np.array([b["frame"] for b in bodies], np.int32)
@@ -83,16 +81,14 @@ for g in ["male", "female"]:
             verts[i] = V[j].astype(np.float16); depth[i] = V[j][:, 2].mean()
     print(f"  smplx {g} done", flush=True)
 
-# ---- pass 2b: depth-sort bodies within each frame -> inst slot ----
 body_inst = np.zeros(T, np.uint8)
 from collections import defaultdict
 byframe = defaultdict(list)
 for i in range(T): byframe[body_frame[i]].append(i)
 for fid, ids in byframe.items():
-    for slot, i in enumerate(sorted(ids, key=lambda k: depth[k])):   # front (small z) -> 0
+    for slot, i in enumerate(sorted(ids, key=lambda k: depth[k])):
         body_inst[i] = slot
 
-# ---- pass 2c: VAE latents ----
 tf = transforms.Compose([transforms.Resize(RES), transforms.CenterCrop(RES),
                          transforms.ToTensor(), transforms.Normalize([0.5], [0.5])])
 vae = AutoencoderKL.from_pretrained("stable-diffusion-v1-5/stable-diffusion-v1-5",
@@ -107,7 +103,6 @@ for s in range(0, F, VAE_CHUNK):
     lat_s[s:e] = dist.std.cpu().numpy().astype(np.float16)
     if s % (VAE_CHUNK * 50) == 0: print(f"  vae {s}/{F}", flush=True)
 
-# ---- split by clip (no frame leakage): ~N_TRAIN frames train, rest test ----
 uniq = sorted(set(clip_of_frame))
 perm = np.random.default_rng(42).permutation(len(uniq))
 cum, train_clips = 0, set()

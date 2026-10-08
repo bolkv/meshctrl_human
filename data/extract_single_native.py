@@ -20,13 +20,13 @@ SRC = "bedlam_multi_train"
 OUT = os.environ.get("OUT", "/workspace/shapectrl/data/bedlam_single")
 WORK = os.environ.get("WORK", "/tmp/claude-0/-workspace/3673b842-a4de-4e64-a083-84288609462f/scratchpad/native_work")
 STRIDE = 5; MARGIN = 1.3; MAXPAD = 0.20; MINPX = 40; TARGET = 512
-LIMIT_CLIPS = int(os.environ.get("LIMIT_CLIPS", "0"))    # >0: only this many clips (test)
+LIMIT_CLIPS = int(os.environ.get("LIMIT_CLIPS", "0"))
 dev = "cuda"
 
 m = json.load(open(f"{SRC}/manifest.json")); imgs = m["images"]; caps = m["captions"]
 bf = np.load(f"{SRC}/body_frame.npy")
 inst_all = np.load(f"{SRC}/body_inst.npy")
-K512 = np.load(f"{SRC}/frame_K.npy").astype(np.float32)     # 512-letterbox K per frame
+K512 = np.load(f"{SRC}/frame_K.npy").astype(np.float32)
 go_all = np.load(f"{SRC}/body_go.npy").astype(np.float32)
 verts = np.load(f"{SRC}/verts.npy", mmap_mode="r")
 B = verts.shape[0]
@@ -35,9 +35,8 @@ def seqof(p):
     for part in p.split("/"):
         if re.match(r"^2022\d{4}_", part): return part
 def parts_of(p):
-    a = p.split("/"); return seqof(p), a[-2], os.path.splitext(a[-1])[0]   # seq, clip, frame(NNNNNN)
+    a = p.split("/"); return seqof(p), a[-2], os.path.splitext(a[-1])[0]
 
-# ---- native K per frame (invert the 512 letterbox) ----
 def native_WH(seq): return (720, 1280) if "closeup" in seq else (1280, 720)
 Knat = np.zeros_like(K512); WHn = np.zeros((len(imgs), 2), np.float32)
 for f, p in enumerate(imgs):
@@ -49,7 +48,6 @@ for f, p in enumerate(imgs):
     Kn[0, 2] = (Kc[0, 2] - px) / s; Kn[1, 2] = (Kc[1, 2] - py) / s
     Knat[f] = Kn
 
-# ---- pass 1: native projection -> bbox + keep mask (GPU) ----
 Kb = torch.tensor(Knat[bf], device=dev); WHb = torch.tensor(WHn[bf], device=dev)
 keep = np.zeros(B, bool); crop = np.zeros((B, 3), np.int32)
 bs = 4000
@@ -75,7 +73,6 @@ for s0 in range(0, B, bs):
 keep_idx = np.nonzero(keep)[0]
 print(f"kept {len(keep_idx):,} / {B:,} bodies ({keep.sum()/B*100:.1f}%) [native bounds]", flush=True)
 
-# ---- keep only PER_PERSON samples per (seq, clip, inst), evenly spread over frames ----
 PER_PERSON = int(os.environ.get("PER_PERSON", "2"))
 from collections import defaultdict
 by_person = defaultdict(list)
@@ -84,16 +81,15 @@ for b in keep_idx:
     by_person[(seq, clip, int(inst_all[b]))].append((int(frame), b))
 sel = []
 for k, lst in by_person.items():
-    lst.sort()                                          # by frame index
+    lst.sort()
     if len(lst) <= PER_PERSON:
         sel += [b for _, b in lst]
     else:
-        pick = np.linspace(0, len(lst) - 1, PER_PERSON).round().astype(int)  # spread ends-inclusive
+        pick = np.linspace(0, len(lst) - 1, PER_PERSON).round().astype(int)
         sel += [lst[i][1] for i in sorted(set(pick))]
 keep_idx = np.array(sorted(sel))
 print(f"-> {len(by_person):,} persons, {PER_PERSON}/person => {len(keep_idx):,} samples", flush=True)
 
-# ---- group selected bodies by (seqdir, clip) ----
 by_clip = defaultdict(list)
 for b in keep_idx:
     seq, clip, frame = parts_of(imgs[int(bf[b])])
@@ -117,7 +113,6 @@ sample_dirs = []; frame_of = []
 cur_seqdir = None; seq_wd = None
 n_done = 0
 for (seq, clip) in clips:
-    # extract this seqdir's mp4 tar once
     if seq != cur_seqdir:
         if seq_wd: shutil.rmtree(seq_wd, ignore_errors=True)
         cur_seqdir = seq; seq_wd = f"{WORK}/{seq}"; os.makedirs(seq_wd, exist_ok=True)
@@ -130,21 +125,21 @@ for (seq, clip) in clips:
                     '-vsync', '0', '-start_number', '0', f'{fwd}/%04d.png'], check=False)
     fcache = {}
     for b in by_clip[(seq, clip)]:
-        f = int(bf[b]); _, _, frame = parts_of(imgs[f]); fi = int(frame)   # frame number == fi index
+        f = int(bf[b]); _, _, frame = parts_of(imgs[f]); fi = int(frame)
         inst = int(inst_all[b]); bx0, by0, sz = (int(x) for x in crop[b])
         if fi not in fcache:
             fcache[fi] = cv2.imread(f"{fwd}/{fi:04d}.png")
         img = fcache[fi]
         if img is None: continue
-        cr = crop_native(img, bx0, by0, sz)                 # sharp native crop ...
+        cr = crop_native(img, bx0, by0, sz)
         interp = cv2.INTER_AREA if sz > TARGET else cv2.INTER_CUBIC
-        cr = cv2.resize(cr, (TARGET, TARGET), interpolation=interp)   # ... -> 512 (single clean resize)
+        cr = cv2.resize(cr, (TARGET, TARGET), interpolation=interp)
         s = TARGET / sz
         rel = f"{seq}/{clip}/{frame}_b{inst}"; d = f"{OUT}/{rel}"; os.makedirs(d, exist_ok=True)
         cv2.imwrite(f"{d}/img.jpg", cr, [cv2.IMWRITE_JPEG_QUALITY, 95])
         v = np.asarray(verts[b], np.float32); K = Knat[f]
         uvf = (K @ (v / v[:, 2:3]).T).T[:, :2]
-        uvc = (uvf - np.array([bx0, by0], np.float32)) * s  # 512-crop coords
+        uvc = (uvf - np.array([bx0, by0], np.float32)) * s
         c = v @ rodrigues(go_all[b]); canon = c - c.mean(0, keepdims=True)
         Kc = K.copy(); Kc[0, 0] *= s; Kc[1, 1] *= s
         Kc[0, 2] = (K[0, 2] - bx0) * s; Kc[1, 2] = (K[1, 2] - by0) * s

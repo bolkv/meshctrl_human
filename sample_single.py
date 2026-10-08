@@ -81,7 +81,7 @@ def main():
     for i, r in enumerate(rows):
         rr, cc = divmod(i, cols); grid[rr*h:(rr+1)*h, cc*w:(cc+1)*w] = r
     cv2.imwrite(args.out, cv2.cvtColor(grid, cv2.COLOR_RGB2BGR))
-    print(f"saved {args.out}  (각 칸: 좌=GT, 우=생성 | cfg={args.guidance} cond={args.cond})", flush=True)
+    print(f"saved {args.out}  (each tile: left=GT, right=generated | cfg={args.guidance} cond={args.cond})", flush=True)
 
 
 if __name__ == "__main__":
